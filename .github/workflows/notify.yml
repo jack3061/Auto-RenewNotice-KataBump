@@ -2,8 +2,8 @@ name: Simple Notify
 
 on:
   schedule:
-    # 每 4 天运行一次 (UTC 0点，北京时间早 8 点)
-    - cron: '0 0 */4 * *'
+    # 每 3 天运行一次 (UTC 0点，北京时间早 8 点)
+    - cron: '0 0 */3 * *'
   workflow_dispatch: # 允许手动测试
 
 jobs:
