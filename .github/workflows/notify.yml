@@ -1,10 +1,11 @@
-name: Simple Notify
+name: Katabump Notify
 
 on:
   schedule:
-    # 每 3 天运行一次 (北京时间早上 8 点)
-    - cron: '0 0 */3 * *'
-  workflow_dispatch: # 允许手动点按钮测试
+    # 建议设置：每 3 天的北京时间早上 9:00 运行
+    # (GitHub 是 UTC 时间，UTC 1:00 = 北京 9:00)
+    - cron: '0 1 */3 * *'
+  workflow_dispatch: # 允许手动测试
 
 jobs:
   notify:
@@ -18,36 +19,78 @@ jobs:
       - name: Install Dependencies
         run: pip install requests
 
-      - name: Send Telegram Notification
+      - name: Send Notification
         env:
+          # 必须在仓库 Settings -> Secrets 里配置这两个
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          # 可选配置 KB_USER 显示账号名
+          KB_USER: ${{ secrets.KB_USER }}
         shell: python
         run: |
           import requests
           import os
+          import datetime
+          import time
+
+          # --- 1. 获取当前北京时间 ---
+          utc_now = datetime.datetime.utcnow()
+          beijing_time = utc_now + datetime.timedelta(hours=8)
+          fmt_time = beijing_time.strftime("%Y-%m-%d %H:%M:%S")
           
-          # 直接在 yaml 里写 Python 代码，不用担心找不到文件
+          # --- 2. 获取配置 ---
           token = os.environ.get("TG_BOT_TOKEN")
           chat_id = os.environ.get("TG_CHAT_ID")
-          
+          user = os.environ.get("KB_USER", "默认账号")
+
+          # 简单的账号脱敏处理
+          if "@" in user and len(user) > 3:
+              parts = user.split("@")
+              masked_user = parts[0][:3] + "***@" + parts[1]
+          else:
+              masked_user = user
+
           if not token or not chat_id:
-            print("❌ 错误: 未检测到 Secrets 配置，请检查 GitHub 仓库设置。")
-            exit(1)
-            
-          text = (
-              "⚠️ <b>Katabump 续期提醒</b>\n\n"
-              "📅 已经过去 3 天了，服务器即将到期！\n"
-              "👉 请立即登录 Renew：\n"
-              "https://dashboard.katabump.com/"
-          )
+              print("❌ 错误: Secrets 未配置，无法发送通知")
+              exit(1)
+
+          # --- 3. 构建消息内容 (包含详细 Renew 步骤) ---
+          text = f"""
+          🚨 <b>Katabump 续期提醒</b>
           
+          📅 <b>时间:</b> {fmt_time}
+          👤 <b>账号:</b> <code>{masked_user}</code>
+          
+          ⚠️ <b>状态提示:</b>
+          服务器周期已过 3 天，请务必在 24 小时内操作续期。
+          
+          📝 <b>Renew 操作指南:</b>
+          1. 登录 <a href="https://dashboard.katabump.com/">Dashboard</a>
+          2. 点击菜单栏 <b>Your Servers</b>
+          3. 找到服务器点击 <b>See</b>
+          4. 进入 <b>General</b> 页面
+          5. 点击蓝色的 <b>Renew</b> 按钮
+          
+          🔗 <a href="https://dashboard.katabump.com/">点击此处直接跳转登录</a>
+          """
+
+          # --- 4. 发送请求 ---
           url = f"https://api.telegram.org/bot{token}/sendMessage"
-          data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-          
+          data = {
+              "chat_id": chat_id, 
+              "text": text, 
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True
+          }
+
+          print(">>> 正在发送通知...")
           try:
-            response = requests.post(url, json=data)
-            print(f"✅ 通知发送状态: {response.status_code}")
-            print(response.text)
+              resp = requests.post(url, json=data, timeout=15)
+              if resp.status_code == 200:
+                  print("✅ 通知发送成功！")
+              else:
+                  print(f"⚠️ 发送失败: {resp.text}")
+                  exit(1) # 标记为失败
           except Exception as e:
-            print(f"❌ 发送失败: {e}")
+              print(f"❌ 网络错误: {e}")
+              exit(1)
