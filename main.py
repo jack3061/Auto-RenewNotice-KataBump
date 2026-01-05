@@ -9,7 +9,7 @@ def send_alert():
     # 消息内容：提醒您去手动点一下
     text = (
         "⚠️ **Katabump 续期提醒**\n\n"
-        "📅 已经过去 4 天了，服务器即将到期！\n"
+        "📅 已经过去 3 天了，服务器即将到期！\n"
         "👉 请立即登录 Renew：\n"
         "https://dashboard.katabump.com/"
     )
