@@ -2,27 +2,52 @@ name: Simple Notify
 
 on:
   schedule:
-    # 每 3 天运行一次 (UTC 0点，北京时间早 8 点)
+    # 每 3 天运行一次 (北京时间早上 8 点)
     - cron: '0 0 */3 * *'
-  workflow_dispatch: # 允许手动测试
+  workflow_dispatch: # 允许手动点按钮测试
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      - name: Install Requests
+      - name: Install Dependencies
         run: pip install requests
 
-      - name: Send Notification
+      - name: Send Telegram Notification
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python notify.py
+        shell: python
+        run: |
+          import requests
+          import os
+          
+          # 直接在 yaml 里写 Python 代码，不用担心找不到文件
+          token = os.environ.get("TG_BOT_TOKEN")
+          chat_id = os.environ.get("TG_CHAT_ID")
+          
+          if not token or not chat_id:
+            print("❌ 错误: 未检测到 Secrets 配置，请检查 GitHub 仓库设置。")
+            exit(1)
+            
+          text = (
+              "⚠️ <b>Katabump 续期提醒</b>\n\n"
+              "📅 已经过去 3 天了，服务器即将到期！\n"
+              "👉 请立即登录 Renew：\n"
+              "https://dashboard.katabump.com/"
+          )
+          
+          url = f"https://api.telegram.org/bot{token}/sendMessage"
+          data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+          
+          try:
+            response = requests.post(url, json=data)
+            print(f"✅ 通知发送状态: {response.status_code}")
+            print(response.text)
+          except Exception as e:
+            print(f"❌ 发送失败: {e}")
