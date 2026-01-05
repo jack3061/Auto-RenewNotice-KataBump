@@ -1,49 +1,28 @@
-name: Katabump Auto Renew
+name: Simple Notify
 
 on:
   schedule:
-    # 每 3 天运行一次 (UTC时间 0点，北京时间早8点)
-    - cron: '0 0 */3 * *'
-  # 允许手动触发
-  workflow_dispatch:
+    # 每 4 天运行一次 (UTC 0点，北京时间早 8 点)
+    - cron: '0 0 */4 * *'
+  workflow_dispatch: # 允许手动测试
 
 jobs:
-  renew_job:
+  notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        # 升级为 v4
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        # 升级为 v5 (setup-python 最新也是推荐用新版，或者保持 v4 也可以，这里用 v5 更稳)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable xvfb
+      - name: Install Requests
+        run: pip install requests
 
-      - name: Install Python Libs
-        run: pip install DrissionPage requests
-
-      - name: Run Renew Script
+      - name: Send Notification
         env:
-          KB_USER: ${{ secrets.KB_USER }}
-          KB_PASS: ${{ secrets.KB_PASS }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: |
-          # 使用 1920x1080 确保弹窗不被遮挡
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python main.py
-
-      - name: Upload Debug Screenshots
-        # 无论成功失败都上传截图
-        if: always()
-        # !!! 关键修复：升级为 v4 !!!
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshots
-          path: "*.jpg"
+        run: python notify.py
