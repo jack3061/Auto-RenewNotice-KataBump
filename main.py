@@ -1,45 +1,25 @@
-name: Katabump Auto Renew
+import requests
+import os
 
-on:
-  schedule:
-    # 每 3 天运行一次
-    - cron: '0 0 */3 * *'
-  workflow_dispatch:
+# 从 GitHub Secrets 获取配置
+TOKEN = os.environ["TG_BOT_TOKEN"]
+CHAT_ID = os.environ["TG_CHAT_ID"]
 
-jobs:
-  renew_job:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+def send_alert():
+    # 消息内容：提醒您去手动点一下
+    text = (
+        "⚠️ **Katabump 续期提醒**\n\n"
+        "📅 已经过去 3 天了，服务器即将到期！\n"
+        "👉 请立即登录 Renew：\n"
+        "https://dashboard.katabump.com/"
+    )
+    
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+        print("✅ 通知已发送")
+    except Exception as e:
+        print(f"❌ 发送失败: {e}")
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable xvfb
-
-      - name: Install Python Libs
-        run: pip install DrissionPage requests
-
-      - name: Run Renew Script
-        env:
-          KB_USER: ${{ secrets.KB_USER }}
-          KB_PASS: ${{ secrets.KB_PASS }}
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: |
-          # 模拟 1920x1080 屏幕
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python main.py
-
-      - name: Upload Screenshots
-        if: always()
-        # [关键修复] 必须使用 v4 版本
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshots
-          path: "*.jpg"
+if __name__ == "__main__":
+    send_alert()
