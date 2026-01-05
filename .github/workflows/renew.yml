@@ -1,0 +1,53 @@
+name: Auto Renew Katabump
+
+on:
+  schedule:
+    # 每 3 天运行一次 (UTC时间 0点，北京时间早8点)
+    - cron: '0 0 */3 * *'
+  # 允许在网页上手动点按钮触发测试
+  workflow_dispatch:
+
+jobs:
+  renew_job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 下载代码仓库
+        uses: actions/checkout@v3
+
+      - name: 安装 Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 安装 Chrome 和 Xvfb (虚拟显示器)
+        run: |
+          sudo apt-get update
+          # 安装 Chrome 浏览器
+          sudo apt-get install -y google-chrome-stable
+          # 安装 Xvfb (让无头服务器能跑有界面浏览器)
+          sudo apt-get install -y xvfb
+
+      - name: 安装 Python 依赖
+        run: |
+          pip install DrissionPage requests
+
+      - name: 运行 Renew 脚本
+        env:
+          # 将 GitHub Secrets 注入环境变量
+          KB_USER: ${{ secrets.KB_USER }}
+          KB_PASS: ${{ secrets.KB_PASS }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          # 关键命令：使用 xvfb-run 启动脚本
+          # 这会模拟一个分辨率为 1280x1024 的显示器
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" python main.py
+
+      - name: 上传截图 (仅调试用)
+        # 无论成功失败，都把截图传上来，方便你查看运行情况
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: screenshots
+          path: "*.jpg"
