@@ -1,0 +1,28 @@
+name: Katabump Renew Reminder (Every 3 Days)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每 3 天跑一次（按 UTC 计算）
+    - cron: "0 0 */3 * *"
+
+concurrency:
+  group: katabump-renew-reminder
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Send Telegram reminder
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          KATABUMP_ACCOUNT_EMAIL: ${{ secrets.KATABUMP_ACCOUNT_EMAIL }}
+          KATABUMP_RENEW_URL: ${{ secrets.KATABUMP_RENEW_URL }}
+          TIMEZONE: ${{ vars.TIMEZONE }}
+        run: |
+          python3 scripts/katabump_remind.py
