@@ -25,4 +25,4 @@ jobs:
           KATABUMP_RENEW_URL: ${{ secrets.KATABUMP_RENEW_URL }}
           TIMEZONE: ${{ vars.TIMEZONE }}
         run: |
-          python3 scripts/katabump_remind.py
+          python3 katabump_remind.py
