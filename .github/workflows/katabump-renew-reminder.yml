@@ -3,8 +3,7 @@ name: Katabump Renew Reminder (Every 3 Days)
 on:
   workflow_dispatch:
   schedule:
-    # 每 3 天跑一次（按 UTC 计算）
-    - cron: "0 0 */3 * *"
+    - cron: "0 0 * * *"
 
 concurrency:
   group: katabump-renew-reminder
