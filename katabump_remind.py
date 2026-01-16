@@ -1,10 +1,13 @@
+#!/usr/bin/env python3
 import os
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, date
+import json
+import re
+import urllib.parse
+import urllib.request
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# 获取当前时间字符串
+
 def now_str(tz_name: str) -> str:
     try:
         tz = ZoneInfo(tz_name)
@@ -12,7 +15,19 @@ def now_str(tz_name: str) -> str:
         tz = ZoneInfo("UTC")
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
-# 发送 Telegram 消息
+
+def mask_email(email: str) -> str:
+    # 简单邮箱脱敏：abcde@xx.com -> abc***@xx.com
+    if "@" not in email:
+        return email
+    name, domain = email.split("@", 1)
+    if len(name) <= 2:
+        masked = name[0] + "***"
+    else:
+        masked = name[:3] + "***"
+    return f"{masked}@{domain}"
+
+
 def send_telegram(bot_token: str, chat_id: str, text_html: str) -> None:
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
@@ -22,87 +37,118 @@ def send_telegram(bot_token: str, chat_id: str, text_html: str) -> None:
         "disable_web_page_preview": True,
     }
 
-    response = requests.post(url, data=payload)
-    response.raise_for_status()
-    r = response.json()
-    if not r.get("ok"):
-        raise RuntimeError(f"Telegram API error: {response.text}")
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+        r = json.loads(body)
+        if not r.get("ok"):
+            raise RuntimeError(f"Telegram API error: {body}")
 
-# 从网页中抓取 Expiry
-def get_expiry_date(login_url: str, dashboard_url: str, email: str, password: str) -> datetime:
-    session = requests.Session()
 
-    # 登录步骤（根据实际需要设置登录参数）
-    login_payload = {
-        'email': email,
-        'password': password
+def http_get(url: str, cookie: str | None = None) -> str:
+    """
+    纯标准库 GET。若页面需要登录，可选传 cookie（不强制）。
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
-    login_response = session.post(login_url, data=login_payload)
-    login_response.raise_for_status()  # 确保登录成功
+    if cookie:
+        headers["Cookie"] = cookie
 
-    # 获取 dashboard 页面
-    dashboard_response = session.get(dashboard_url)
-    dashboard_response.raise_for_status()
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return resp.read().decode("utf-8", errors="replace")
 
-    # 解析 HTML
-    soup = BeautifulSoup(dashboard_response.text, 'html.parser')
-    expiry_text = soup.find('div', text='Expiry').find_next('div').get_text(strip=True)
-    expiry_date = datetime.strptime(expiry_text, "%Y-%m-%d").date()
 
-    return expiry_date
+def parse_expiry_date(html: str) -> str:
+    """
+    从页面中解析 Expiry 的日期字符串：YYYY-MM-DD
+    依据你提供的结构：
+      <div class="... label ">Expiry</div>
+      <div class="...">2026-01-18</div>
+    """
+    m = re.search(
+        r'>\s*Expiry\s*</div>\s*<div[^>]*>\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*</div>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not m:
+        raise ValueError("Could not find Expiry date in HTML (maybe not logged in / page changed).")
+    return m.group(1)
 
-# 判断是否到期前一天
-def is_one_day_before_expire(expiry_date: date, tz: ZoneInfo) -> bool:
-    today = datetime.now(tz).date()
-    return (expiry_date - today).days == 1
 
-# 主逻辑
 def main():
     bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
-    login_url = "https://dashboard.katabump.com/login"
-    dashboard_url = "https://dashboard.katabump.com/dashboard"
-    email = os.environ["KATABUMP_EMAIL"]
-    password = os.environ["KATABUMP_PASSWORD"]
-    tz_name = os.environ.get("TIMEZONE", "America/Los_Angeles")
 
-    # 获取当前时区信息
+    # ✅ 不改你原始变量名
+    email = os.environ.get("KATABUMP_ACCOUNT_EMAIL", "lib***@outlook.com")
+    renew_url = os.environ.get("KATABUMP_RENEW_URL", "https://dashboard.katabump.com/dashboard")
+    tz_name = os.environ.get("TIMEZONE", "Asia/Taipei")  # 你也可以继续用原来的默认
+
+    # 可选：如果 dashboard 需要登录才能看到 Expiry，你可以额外在 Secrets 里加一个 KATABUMP_COOKIE
+    # 不加也不影响运行，只是可能解析不到 Expiry（会发“检查失败”通知）
+    cookie = os.environ.get("KATABUMP_COOKIE")
+
+    # 时区对象
     try:
         tz = ZoneInfo(tz_name)
     except Exception:
         tz = ZoneInfo("UTC")
 
     ts = now_str(tz_name)
+    email_masked = mask_email(email)
 
-    # 获取 Expiry 日期
     try:
-        expiry_date = get_expiry_date(login_url, dashboard_url, email, password)
+        html = http_get(renew_url, cookie=cookie)
+        expiry_str = parse_expiry_date(html)  # "2026-01-18"
+        expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+        today = datetime.now(tz).date()
+        days_left = (expiry_date - today).days
     except Exception as e:
+        # 抓不到 Expiry：直接通知你“检查失败”，避免你以为没到期
         msg = f"""❌ <b>Katabump 到期检查失败</b>
 
 📅 时间: {ts}
-👤 账号: {email}
+👤 账号: {email_masked}
 
 原因: <code>{type(e).__name__}: {str(e)}</code>
 
-🔗 <a href="{dashboard_url}">点击此处打开 Dashboard</a>
+可能原因：
+- 该页面需要登录才能看到 Expiry（GitHub Actions 没有登录态）
+- 页面结构变了导致解析不到
+
+🔗 <a href="{renew_url}">打开 Dashboard</a>
 """
         send_telegram(bot_token, chat_id, msg)
         return
 
-    # 判断是否是到期前一天
-    if is_one_day_before_expire(expiry_date, tz):
-        msg = f"""🚨 <b>Katabump 续期提醒（到期前 1 天）</b>
+    # ✅ 只在“到期前一天”通知（稳健：按 date 差值）
+    if days_left != 1:
+        print(f"[SKIP] expiry={expiry_str}, today={today}, days_left={days_left}")
+        return
+
+    msg = f"""🚨 <b>Katabump 续期提醒（到期前 1 天）</b>
 
 📅 时间: {ts}
-👤 账号: {email}
+👤 账号: {email_masked}
 
-⏳ 到期日: <b>{expiry_date}</b>
-✅ 符合官方规则：仅到期前一天可 Renew
+⏳ Expiry: <b>{expiry_str}</b>
+✅ 仅在到期前一天提醒（当前剩余 <b>{days_left}</b> 天）
 
-🔗 <a href="{dashboard_url}">点击此处直接跳转登录</a>
+📝 Renew 操作指南:
+1. 登录 Dashboard
+2. 点击菜单栏 Your Servers
+3. 找到服务器点击 See
+4. 进入 General 页面
+5. 点击蓝色的 Renew 按钮
+
+🔗 <a href="{renew_url}">点击此处直接跳转</a>
 """
-        send_telegram(bot_token, chat_id, msg)
+    send_telegram(bot_token, chat_id, msg)
+
 
 if __name__ == "__main__":
     main()
