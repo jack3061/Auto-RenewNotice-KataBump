@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 
 # 配置
 DASHBOARD_URL = 'https://dashboard.katabump.com'
-SERVER_ID = os.environ.get('KATA_SERVER_ID', '201692')
+SERVER_ID = os.environ.get('KATA_SERVER_ID', '199993')
 KATA_EMAIL = os.environ.get('KATA_EMAIL', '')
 KATA_PASSWORD = os.environ.get('KATA_PASSWORD', '')
 TG_BOT_TOKEN = os.environ.get('TG_BOT_TOKEN', '')
