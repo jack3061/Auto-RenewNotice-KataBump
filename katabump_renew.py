@@ -10,10 +10,10 @@ from datetime import datetime, timezone, timedelta
 # 配置
 DASHBOARD_URL = 'https://dashboard.katabump.com'
 SERVER_ID = os.environ.get('KATA_SERVER_ID', '199993')
-KATA_EMAIL = os.environ.get('KATA_EMAIL', '')
+KATA_EMAIL = os.environ.get('KATABUMP_ACCOUNT_EMAIL', '')
 KATA_PASSWORD = os.environ.get('KATA_PASSWORD', '')
-TG_BOT_TOKEN = os.environ.get('TG_BOT_TOKEN', '')
-TG_CHAT_ID = os.environ.get('TG_USER_ID', '')
+TG_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+TG_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
 
 # 执行器配置
 EXECUTOR_NAME = os.environ.get('EXECUTOR_NAME', 'https://ql.api.sld.tw')
