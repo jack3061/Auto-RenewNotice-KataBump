@@ -37,12 +37,17 @@ def send_telegram(message):
             json={'chat_id': TG_CHAT_ID, 'text': message, 'parse_mode': 'HTML'},
             timeout=30
         )
-        if resp.status_code == 200:
-            log('✅ Telegram 通知已发送')
-            return True
-        else:
-            log(f'❌ Telegram 发送失败: {resp.status_code}')
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": resp.text}
+
+        if resp.status_code != 200 or not data.get("ok"):
+            log(f'❌ Telegram 发送失败: HTTP {resp.status_code}, resp={data}')
             return False
+
+        log('✅ Telegram 通知已发送')
+        return True
     except Exception as e:
         log(f'❌ Telegram 错误: {e}')
         return False
