@@ -47,8 +47,28 @@ def send_telegram(message):
 
 
 def get_expiry(html):
-    match = re.search(r'Expiry[\s\S]*?(\d{4}-\d{2}-\d{2})', html, re.IGNORECASE)
-    return match.group(1) if match else None
+    """
+    从页面提取到期日期
+    HTML 结构:
+    <div class="col-lg-3 col-md-4 label ">Expiry</div>
+    <div class="col-lg-9 col-md-8">2026-01-22</div>
+    """
+    patterns = [
+        # 精确匹配 Expiry label 后的日期
+        r'>\s*Expiry\s*</div>\s*<div[^>]*>\s*(\d{4}-\d{2}-\d{2})\s*</div>',
+        # 宽松匹配
+        r'Expiry\s*</div>\s*<div[^>]*>(\d{4}-\d{2}-\d{2})',
+        # 最宽松匹配
+        r'Expiry[\s\S]{0,100}?(\d{4}-\d{2}-\d{2})',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, html, re.IGNORECASE)
+        if match:
+            log(f'🔍 使用正则匹配成功: {pattern[:30]}...')
+            return match.group(1)
+    
+    return None
 
 
 def days_until(date_str):
@@ -101,11 +121,25 @@ def run():
         log('✅ 登录成功')
         
         # ========== 获取服务器信息 ==========
-        server_page = session.get(f'{DASHBOARD_URL}/servers/edit?id={SERVER_ID}', timeout=30)
+        server_url = f'{DASHBOARD_URL}/servers/edit?id={SERVER_ID}'
+        log(f'🔍 访问: {server_url}')
+        server_page = session.get(server_url, timeout=30)
         
+        log(f'📍 页面URL: {server_page.url}')
+        log(f'📄 页面大小: {len(server_page.text)} 字节')
+        
+        # 检查是否成功访问服务器页面
+        if '/servers/edit' not in server_page.url:
+            raise Exception(f'无法访问服务器页面，被重定向到: {server_page.url}')
+        
+        # 提取到期时间
         expiry = get_expiry(server_page.text)
         
         if not expiry:
+            # 调试输出
+            expiry_match = re.search(r'.{50}Expiry.{100}', server_page.text, re.IGNORECASE)
+            if expiry_match:
+                log(f'📄 调试 - Expiry 附近: {repr(expiry_match.group(0))}')
             raise Exception('无法获取到期时间，页面结构可能已变更')
         
         days = days_until(expiry)
