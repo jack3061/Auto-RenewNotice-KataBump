@@ -3,11 +3,24 @@ name: KataBump Expiry Notice
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"  # 每天 03:00 UTC（北京时间 11:00）
+    - cron: "0 3 * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
+
+    # 如果你的 secrets 配在 Environment 里，取消注释并填环境名
+    # environment: production
+
+    env:
+      KATA_EMAIL: ${{ secrets.KATA_EMAIL }}
+      KATA_PASSWORD: ${{ secrets.KATA_PASSWORD }}
+      KATA_SERVER_ID: ${{ secrets.KATA_SERVER_ID }}
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      EXECUTOR_NAME: "GitHub Actions"
+      KATA_NOTIFY_DAYS: "7"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,15 +29,19 @@ jobs:
           python-version: "3.9"
 
       - name: Install deps
-        run: python -m pip install --upgrade pip requests
+        run: python -m pip install -U pip requests
 
-      - name: Run notice script
-        env:
-          KATA_EMAIL: ${{ secrets.KATA_EMAIL }}
-          KATA_PASSWORD: ${{ secrets.KATA_PASSWORD }}
-          KATA_SERVER_ID: ${{ secrets.KATA_SERVER_ID }}
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          EXECUTOR_NAME: "GitHub Actions"
-          KATA_NOTIFY_DAYS: "7"
+      - name: List files
+        run: ls -la
+
+      - name: Debug env injected (length only)
+        run: |
+          python - <<'PY'
+          import os
+          for k in ["TG_BOT_TOKEN","TG_CHAT_ID","KATA_EMAIL","KATA_PASSWORD","KATA_SERVER_ID"]:
+            v=(os.getenv(k,"") or "").strip()
+            print(k, "len=", len(v))
+          PY
+
+      - name: Run script
         run: python katabump_renew.py
