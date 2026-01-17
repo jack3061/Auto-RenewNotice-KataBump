@@ -9,11 +9,13 @@ from datetime import datetime, timezone, timedelta
 
 # 配置
 DASHBOARD_URL = 'https://dashboard.katabump.com'
-SERVER_ID = os.environ.get('KATA_SERVER_ID', '199993')
 KATA_EMAIL = os.environ.get('KATA_EMAIL', '')
 KATA_PASSWORD = os.environ.get('KATA_PASSWORD', '')
 TG_BOT_TOKEN = os.environ.get('TG_BOT_TOKEN', '')
 TG_CHAT_ID = os.environ.get('TG_CHAT_ID', '')
+
+# 服务器ID - 支持多种环境变量名
+SERVER_ID = os.environ.get('KATA_SERVER_ID') or os.environ.get('KATABUMP_SERVER_ID') or '199993'
 
 # 执行器配置
 EXECUTOR_NAME = os.environ.get('EXECUTOR_NAME', 'https://ql.api.sld.tw')
@@ -49,23 +51,16 @@ def send_telegram(message):
 def get_expiry(html):
     """
     从页面提取到期日期
-    HTML 结构:
-    <div class="col-lg-3 col-md-4 label ">Expiry</div>
-    <div class="col-lg-9 col-md-8">2026-01-22</div>
     """
     patterns = [
-        # 精确匹配 Expiry label 后的日期
         r'>\s*Expiry\s*</div>\s*<div[^>]*>\s*(\d{4}-\d{2}-\d{2})\s*</div>',
-        # 宽松匹配
         r'Expiry\s*</div>\s*<div[^>]*>(\d{4}-\d{2}-\d{2})',
-        # 最宽松匹配
         r'Expiry[\s\S]{0,100}?(\d{4}-\d{2}-\d{2})',
     ]
     
     for pattern in patterns:
         match = re.search(pattern, html, re.IGNORECASE)
         if match:
-            log(f'🔍 使用正则匹配成功: {pattern[:30]}...')
             return match.group(1)
     
     return None
@@ -83,6 +78,10 @@ def days_until(date_str):
 def run():
     log('🚀 KataBump 到期提醒')
     log(f'🖥 服务器 ID: {SERVER_ID}')
+    
+    # 检查 SERVER_ID
+    if not SERVER_ID or SERVER_ID.strip() == '':
+        raise Exception('SERVER_ID 为空，请设置 KATA_SERVER_ID 环境变量')
     
     session = requests.Session()
     session.headers.update({
@@ -129,15 +128,14 @@ def run():
         log(f'📄 页面大小: {len(server_page.text)} 字节')
         
         # 检查是否成功访问服务器页面
-        if '/servers/edit' not in server_page.url:
+        if '/servers/edit' not in server_page.url or f'id={SERVER_ID}' not in server_page.url:
             raise Exception(f'无法访问服务器页面，被重定向到: {server_page.url}')
         
         # 提取到期时间
         expiry = get_expiry(server_page.text)
         
         if not expiry:
-            # 调试输出
-            expiry_match = re.search(r'.{50}Expiry.{100}', server_page.text, re.IGNORECASE)
+            expiry_match = re.search(r'.{30}Expiry.{80}', server_page.text, re.IGNORECASE)
             if expiry_match:
                 log(f'📄 调试 - Expiry 附近: {repr(expiry_match.group(0))}')
             raise Exception('无法获取到期时间，页面结构可能已变更')
@@ -189,8 +187,16 @@ def main():
     log('   KataBump 到期提醒脚本')
     log('=' * 50)
     
+    # 调试：打印环境变量
+    log(f'📋 KATA_SERVER_ID 环境变量: {repr(os.environ.get("KATA_SERVER_ID"))}')
+    log(f'📋 使用的 SERVER_ID: {repr(SERVER_ID)}')
+    
     if not KATA_EMAIL or not KATA_PASSWORD:
         log('❌ 请设置 KATA_EMAIL 和 KATA_PASSWORD')
+        sys.exit(1)
+    
+    if not SERVER_ID or SERVER_ID.strip() == '':
+        log('❌ 请设置 KATA_SERVER_ID')
         sys.exit(1)
     
     run()
