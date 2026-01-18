@@ -4,11 +4,13 @@
 import os
 import re
 import sys
+import html as _html
 import requests
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 DASHBOARD_URL = "https://dashboard.katabump.com"
+DASHBOARD_LOGIN_URL = f"{DASHBOARD_URL}/auth/login"
 TZ = timezone(timedelta(hours=8))
 
 def env(name: str, default: str = "") -> str:
@@ -18,11 +20,24 @@ def log(msg: str):
     print(f'[{datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")}] {msg}', flush=True)
 
 def mask(s: str) -> str:
+    """Generic mask for secrets"""
     if not s:
         return "EMPTY"
     if len(s) <= 8:
         return f"len={len(s)}:{s!r}"
     return f"len={len(s)}:{s[:4]}...{s[-4:]}"
+
+def mask_server_id(s: str, head: int = 4, tail: int = 4) -> str:
+    """Server ID 脱敏显示：abcd…wxyz"""
+    if not s:
+        return "EMPTY"
+    if len(s) <= head + tail + 1:
+        return f"len={len(s)}"
+    return f"{s[:head]}…{s[-tail:]}"
+
+def h(s: object) -> str:
+    """HTML-escape for Telegram parse_mode=HTML"""
+    return _html.escape("" if s is None else str(s), quote=True)
 
 KATA_EMAIL    = env("KATA_EMAIL")
 KATA_PASSWORD = env("KATA_PASSWORD")
@@ -33,8 +48,20 @@ EXECUTOR_NAME = env("EXECUTOR_NAME", "GitHub Actions")
 
 NOTIFY_DAYS = int(env("KATA_NOTIFY_DAYS", "7"))
 
-def tg_send(text: str) -> bool:
-    """Send plain text (no HTML parse_mode) to avoid entity/parse issues."""
+RENEW_GUIDE = (
+    "Renew 操作指南：\n"
+    "1. 登录 Dashboard\n"
+    "2. 点击菜单栏 Your Servers\n"
+    "3. 找到服务器点击 See\n"
+    "4. 进入 General 页面\n"
+    "5. 点击蓝色的 Renew 按钮"
+)
+
+def tg_send_html(html_text: str) -> bool:
+    """
+    Send Telegram message with parse_mode=HTML to support clickable text link.
+    NOTE: html_text must be properly escaped except allowed tags (<a>, <b>, etc.)
+    """
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         log("Telegram 未配置（TG_BOT_TOKEN/TG_CHAT_ID 为空）")
         return False
@@ -42,7 +69,8 @@ def tg_send(text: str) -> bool:
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TG_CHAT_ID,
-        "text": text,
+        "text": html_text,
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 
@@ -77,7 +105,7 @@ def parse_expiry(html: str) -> Optional[str]:
         if m:
             return m.group(1)
 
-    # 兜底：全页找日期（可能误匹配，但总比 None 强；若误匹配你可再收紧）
+    # 兜底：全页找日期（可能误匹配；如误匹配可再收紧）
     m = re.search(r"(\d{4}-\d{2}-\d{2})", html)
     return m.group(1) if m else None
 
@@ -113,9 +141,40 @@ def kata_login(session: requests.Session):
     if "/auth/login" in r.url:
         raise RuntimeError("登录失败：检查 KATA_EMAIL / KATA_PASSWORD（或需要额外验证）")
 
+def build_notice_html(title: str, server_display: str, expiry: Optional[str], days: Optional[int]) -> str:
+    login_link = f'<a href="{h(DASHBOARD_LOGIN_URL)}">点击此处登录</a>'
+
+    parts = [
+        f"<b>[KataBump] {h(title)}</b>",
+        f"Server: <code>{h(server_display)}</code>",
+    ]
+    if expiry is not None:
+        parts.append(f"Expiry: <code>{h(expiry)}</code>")
+    if days is not None:
+        parts.append(f"Days: <code>{h(days)}</code>")
+    parts.append(f"Executor: <code>{h(EXECUTOR_NAME)}</code>")
+    parts.append(f"{login_link}")
+    parts.append("")  # blank line
+    parts.append(h(RENEW_GUIDE))
+    return "\n".join(parts)
+
+def build_error_html(server_display: str, err: Exception) -> str:
+    login_link = f'<a href="{h(DASHBOARD_LOGIN_URL)}">点击此处登录</a>'
+    return "\n".join([
+        "<b>[KataBump] Error</b>",
+        f"Server: <code>{h(server_display)}</code>",
+        f"Executor: <code>{h(EXECUTOR_NAME)}</code>",
+        f"Error: <code>{h(err)}</code>",
+        f"{login_link}",
+        "",
+        h(RENEW_GUIDE),
+    ])
+
 def main():
+    server_display = mask_server_id(SERVER_ID)
+
     log(f"Python: {sys.version.split()[0]}")
-    log(f"SERVER_ID={SERVER_ID!r}  NOTIFY_DAYS={NOTIFY_DAYS}")
+    log(f"SERVER_ID={server_display!r}  NOTIFY_DAYS={NOTIFY_DAYS}")
     # 脱敏打印，专治“看似配置了但没注入”
     log(f"TG_BOT_TOKEN={mask(TG_BOT_TOKEN)}")
     log(f"TG_CHAT_ID={mask(TG_CHAT_ID)}")
@@ -132,6 +191,7 @@ def main():
         "Accept-Language": "en-US,en;q=0.5",
     })
 
+    # 仍然用真实 SERVER_ID 抓取页面，但不在通知里暴露
     server_url = f"{DASHBOARD_URL}/servers/edit?id={SERVER_ID}"
 
     try:
@@ -158,29 +218,17 @@ def main():
             log(f"剩余 > {NOTIFY_DAYS} 天，不通知")
             return
 
-        msg = (
-            f"[KataBump] {'已过期' if days < 0 else '到期提醒'}\n"
-            f"Server: {SERVER_ID}\n"
-            f"Expiry: {expiry}\n"
-            f"Days: {days}\n"
-            f"Executor: {EXECUTOR_NAME}\n"
-            f"Link: {server_url}"
-        )
+        title = "已过期" if days < 0 else "到期提醒"
+        msg_html = build_notice_html(title=title, server_display=server_display, expiry=expiry, days=days)
 
-        if not tg_send(msg):
+        if not tg_send_html(msg_html):
             # 需要通知却发不出去 -> 让 Actions 任务失败，方便你发现
             raise RuntimeError("需要通知但 Telegram 发送失败（检查 chat_id/权限/网络/Secrets 注入）")
 
     except Exception as e:
         log(f"脚本错误：{e}")
         # 尝试发错误通知；若未配置 TG 就会在日志里提示
-        tg_send(
-            f"[KataBump] Error\n"
-            f"Server: {SERVER_ID}\n"
-            f"Executor: {EXECUTOR_NAME}\n"
-            f"Error: {e}\n"
-            f"Link: {server_url}"
-        )
+        tg_send_html(build_error_html(server_display=server_display, err=e))
         raise
 
 if __name__ == "__main__":
